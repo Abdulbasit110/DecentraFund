@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import { useContract } from "../hooks/useContract";
+import CampaignABI from "../contracts/CrowdfundingCampaign.json";
 
 const ContractContext = createContext();
 
@@ -97,6 +98,86 @@ function ContractProvider({ children }) {
     ]);
   }, []);
 
+  // Function to get campaign data
+  const getCampaignData = useCallback(
+    async (campaignAddress) => {
+      if (!campaignAddress || !signer) return null;
+
+      try {
+        const campaignContract = await getContract(
+          campaignAddress,
+          CampaignABI.abi
+        );
+        setCampaignContract(campaignContract);
+
+        const [
+          title,
+          description,
+          imageURL,
+          goal,
+          totalRaised,
+          deadline,
+          creator,
+        ] = await Promise.all([
+          campaignContract.title(),
+          campaignContract.description(),
+          campaignContract.imageURL(),
+          campaignContract.goal(),
+          campaignContract.totalRaised(),
+          campaignContract.deadline(),
+          campaignContract.creator(),
+        ]);
+
+        return {
+          address: campaignAddress,
+          title,
+          description,
+          imageURL,
+          goal,
+          totalRaised,
+          deadline,
+          creator,
+          isCreator: creator.toLowerCase() === account?.toLowerCase(),
+        };
+      } catch (error) {
+        console.error("Error fetching campaign data:", error);
+        return null;
+      }
+    },
+    [getContract, signer, account]
+  );
+
+  // Contribute to campaign
+  const contribute = useCallback(
+    async (campaignAddress, amount) => {
+      if (!campaignAddress || !signer || !amount) {
+        throw new Error("Missing parameters for contribution");
+      }
+
+      try {
+        setTxStatus({ pending: true, success: false, error: null });
+
+        const campaignContract = await getContract(
+          campaignAddress,
+          CampaignABI.abi
+        );
+        const tx = await campaignContract.contribute({ value: amount });
+
+        addTxToHistory(tx);
+
+        const receipt = await tx.wait();
+        setTxStatus({ pending: false, success: true, error: null });
+
+        return receipt;
+      } catch (error) {
+        console.error("Error contributing to campaign:", error);
+        setTxStatus({ pending: false, success: false, error });
+        throw error;
+      }
+    },
+    [getContract, signer, addTxToHistory]
+  );
+
   // Update transaction status in history
   const updateTxStatus = useCallback((hash, status, blockNumber, gasUsed) => {
     setTxHistory((prev) =>
@@ -149,7 +230,8 @@ function ContractProvider({ children }) {
     readContract,
     initContracts,
     campaignContract,
-    setCampaignContract,
+    getCampaignData,
+    contribute,
     getEscrowStatus,
     getEscrowBalance,
     getRequiredApprovals,

@@ -1,154 +1,128 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
+import { useContractContext } from "../../context/ContractContext";
+import { formatEther } from "ethers";
 import CampaignCard from "./CampaignCard";
-import { getContract } from "../../hooks/useContract";
-import CampaignFactory from "../../contracts/CampaignFactory.json";
 import {
   ArrowPathIcon,
   ExclamationTriangleIcon,
 } from "@heroicons/react/24/outline";
 
-const CampaignList = ({ key }) => {
+const CampaignList = () => {
+  const { contracts, getCampaignData } = useContractContext();
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchCampaigns = async () => {
-    try {
-      const factory = await getContract(
-        process.env.REACT_APP_FACTORY_ADDRESS,
-        CampaignFactory.abi
-      );
-      const campaignAddresses = await factory.getDeployedCampaigns();
+  const fetchCampaigns = useCallback(async () => {
+    if (!contracts.factory) {
+      setLoading(false);
+      return;
+    }
 
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Get deployed campaign addresses
+      const campaignAddresses = await contracts.factory.getDeployedCampaigns();
+
+      // Fetch data for each campaign
       const campaignData = await Promise.all(
         campaignAddresses.map(async (address) => {
-          const campaign = await getContract(
-            address,
-            require("../../contracts/Campaign.json").abi
-          );
-          const [title, description, goal, creator, currentAmount, deadline] =
-            await Promise.all([
-              campaign.title(),
-              campaign.description(),
-              campaign.goal(),
-              campaign.creator(),
-              campaign.currentAmount(),
-              campaign.deadline(),
-            ]);
+          const data = await getCampaignData(address);
+          if (!data) return null;
 
           // Calculate days left
           const daysLeft = Math.max(
             0,
             Math.floor(
-              (deadline.toNumber() - Math.floor(Date.now() / 1000)) / 86400
+              (Number(data.deadline) - Math.floor(Date.now() / 1000)) / 86400
             )
           );
 
+          // Format data
           return {
+            id: campaignAddresses.indexOf(address),
             address,
-            title,
-            description,
-            goal: ethers.utils.formatEther(goal),
-            currentAmount: ethers.utils.formatEther(currentAmount),
-            creator,
+            title: data.title,
+            description: data.description,
+            goal: formatEther(data.goal),
+            currentAmount: formatEther(data.totalRaised),
+            progress: (Number(data.totalRaised) / Number(data.goal)) * 100,
+            deadline: new Date(
+              Number(data.deadline) * 1000
+            ).toLocaleDateString(),
+            creator: data.creator,
             daysLeft,
-            category: "Community", // You can fetch this from your contract if available
+            imageURL: data.imageURL || "/assets/localart.jpg",
           };
         })
       );
 
-      setCampaigns(campaignData);
+      // Filter out null values (in case of errors)
+      const validCampaigns = campaignData.filter(
+        (campaign) => campaign !== null
+      );
+      setCampaigns(validCampaigns);
     } catch (err) {
-      setError(err.message);
       console.error("Error fetching campaigns:", err);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [contracts.factory, getCampaignData]);
 
   useEffect(() => {
     fetchCampaigns();
-  }, [key]);
+  }, [fetchCampaigns]);
 
-  const refreshCampaigns = () => {
-    setLoading(true);
-    setError(null);
+  const handleRefresh = () => {
     fetchCampaigns();
   };
 
   if (loading) {
     return (
-      <div className="py-12">
-        <div className="flex flex-col items-center justify-center space-y-4">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-500"></div>
-          <p className="text-lg text-gray-600">Loading campaigns...</p>
-        </div>
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="rounded-lg bg-red-50 p-4 shadow-sm border border-red-100">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <ExclamationTriangleIcon className="h-5 w-5 text-red-500" />
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">
-                Error loading campaigns
-              </h3>
-              <div className="mt-2 text-sm text-red-700">
-                <p>{error}</p>
-              </div>
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={refreshCampaigns}
-                  className="inline-flex items-center rounded-md bg-red-50 px-2.5 py-1.5 text-sm font-medium text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 focus:ring-offset-red-50"
-                >
-                  <ArrowPathIcon className="-ml-0.5 mr-1.5 h-4 w-4" />
-                  Try again
-                </button>
-              </div>
-            </div>
+      <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4 mb-6">
+        <div className="flex items-center">
+          <div className="h-5 w-5 text-red-500 mr-2">
+            <ExclamationTriangleIcon />
           </div>
+          <span className="font-medium">Error: {error}</span>
         </div>
+        <button
+          onClick={handleRefresh}
+          className="mt-2 inline-flex items-center px-3 py-1.5 border border-red-300 text-sm leading-5 font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100 focus:outline-none focus:border-red-400 focus:shadow-outline-red active:bg-red-200"
+        >
+          <ArrowPathIcon className="h-4 w-4 mr-1" />
+          Retry
+        </button>
       </div>
     );
   }
 
   if (campaigns.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto py-12 text-center">
-        <div className="p-6 bg-indigo-50 rounded-xl inline-block mb-6">
-          <svg
-            className="mx-auto h-12 w-12 text-indigo-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-            />
-          </svg>
-        </div>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">
-          No campaigns found
+      <div className="bg-white shadow rounded-lg p-6 text-center">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          No Campaigns Found
         </h3>
-        <p className="text-gray-500 mb-6">
-          Be the first to create a campaign and start raising funds for your
-          project.
+        <p className="text-gray-500 mb-4">
+          There are no active crowdfunding campaigns at the moment.
         </p>
         <button
-          onClick={refreshCampaigns}
-          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          onClick={handleRefresh}
+          className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
         >
-          <ArrowPathIcon className="-ml-1 mr-2 h-4 w-4" />
+          <ArrowPathIcon className="h-4 w-4 mr-1" />
           Refresh
         </button>
       </div>
@@ -156,25 +130,27 @@ const CampaignList = ({ key }) => {
   }
 
   return (
-    <div className="pb-12">
-      <div className="flex justify-between items-center mb-8">
-        <h2 className="text-2xl font-bold text-gray-900">Active Campaigns</h2>
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-gray-900">All Campaigns</h2>
         <button
-          onClick={refreshCampaigns}
-          className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          onClick={handleRefresh}
+          className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm leading-5 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
         >
-          <ArrowPathIcon className="-ml-0.5 mr-2 h-4 w-4" />
+          <ArrowPathIcon className="h-4 w-4 mr-1" />
           Refresh
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {campaigns.map((campaign) => (
-          <CampaignCard
+          <Link
+            to={`/campaigns/${campaign.id}`}
             key={campaign.address}
-            campaign={campaign}
-            refreshCampaigns={refreshCampaigns}
-          />
+            className="block hover:shadow-md transition duration-150"
+          >
+            <CampaignCard campaign={campaign} />
+          </Link>
         ))}
       </div>
     </div>

@@ -18,7 +18,6 @@ export function useContract() {
     success: false,
     error: null,
   });
-
   // Initialize provider and signer
   const initProvider = useCallback(async () => {
     if (window.ethereum) {
@@ -30,20 +29,36 @@ export function useContract() {
         return { provider: newProvider, signer: newSigner };
       } catch (error) {
         console.error("Error initializing provider:", error);
-        throw error;
+        // Don't throw, just return null provider and signer
+        return { provider: null, signer: null };
       }
+    } else {
+      console.warn(
+        "MetaMask not detected! Please install MetaMask to use this application."
+      );
+      // Return null instead of throwing
+      return { provider: null, signer: null };
     }
-    throw new Error("Ethereum provider not found");
   }, []);
-
   // Get contract instance
   const getContract = useCallback(
     async (address, abi) => {
-      if (!signer) {
-        const { signer: newSigner } = await initProvider();
-        return new Contract(address, abi, newSigner);
+      try {
+        if (!signer) {
+          const { signer: newSigner } = await initProvider();
+          if (!newSigner) {
+            console.warn(
+              "No signer available. Make sure MetaMask is installed and connected."
+            );
+            return null;
+          }
+          return new Contract(address, abi, newSigner);
+        }
+        return new Contract(address, abi, signer);
+      } catch (error) {
+        console.error("Error getting contract:", error);
+        return null;
       }
-      return new Contract(address, abi, signer);
     },
     [signer, initProvider]
   );

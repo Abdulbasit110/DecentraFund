@@ -42,10 +42,13 @@ export default function ConnectWalletButton({
       checkConnection();
     }
   }, [account, provider]);
-
   const connectWallet = async () => {
     if (typeof window.ethereum === "undefined") {
-      alert("Please install MetaMask to connect your wallet!");
+      // Open MetaMask download page in a new tab
+      window.open("https://metamask.io/download/", "_blank");
+      alert(
+        "MetaMask is not installed. We've opened the download page for you. Please install MetaMask and refresh this page."
+      );
       return;
     }
 
@@ -57,7 +60,13 @@ export default function ConnectWalletButton({
       await provider.send("eth_requestAccounts", []);
     } catch (error) {
       console.error("Error connecting wallet:", error);
-      alert(`Failed to connect wallet: ${error.message}`);
+      if (error.code === -32002) {
+        alert(
+          "MetaMask connection request already pending. Please check your MetaMask extension."
+        );
+      } else {
+        alert(`Failed to connect wallet: ${error.message}`);
+      }
     } finally {
       setIsConnecting(false);
     }
@@ -94,31 +103,25 @@ export default function ConnectWalletButton({
     }
   };
 
+  // Display the connected address
   const displayAddress = account
     ? `${account.slice(0, 6)}...${account.slice(-4)}`
     : "Connect Wallet";
 
   return (
-    <div className="relative w-full sm:w-auto flex justify-center items-center">
-      <button
-        onClick={
-          account ? () => setShowNetworkMenu(!showNetworkMenu) : connectWallet
-        }
-        disabled={isConnecting}
-        className={`${getButtonStyles()} ${className} ${
-          isConnecting ? "opacity-80 cursor-not-allowed" : ""
-        }`}
-      >
-        {/* Animated background elements */}
-        <span className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-purple-600/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></span>
-        <span className="absolute inset-0 border border-transparent rounded-full animate-[spin_3s_linear_infinite] [background:conic-gradient(rgba(255,255,255,0.3)_0%,rgba(255,255,255,0)_30%,rgba(255,255,255,0)_70%,rgba(255,255,255,0.3)_100%)]"></span>
-
-        {/* Button content */}
-        <span className="relative flex items-center">
+    <div className={className}>
+      {isSupportedNetwork || !account ? (
+        <button
+          onClick={
+            account ? () => setShowNetworkMenu(!showNetworkMenu) : connectWallet
+          }
+          className={getButtonStyles()}
+          disabled={isConnecting}
+        >
           {isConnecting ? (
-            <>
+            <span className="flex items-center">
               <svg
-                className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
+                className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -138,81 +141,61 @@ export default function ConnectWalletButton({
                 ></path>
               </svg>
               Connecting...
-            </>
+            </span>
           ) : (
-            <>
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className={`h-5 w-5 mr-2 ${
-                  !account && "group-hover:animate-pulse"
-                }`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13 10V3L4 14h7v7l9-11h-7z"
-                />
-              </svg>
-              {displayAddress}
-              {account && (
-                <span
-                  className={`ml-2 px-2 py-1 text-xs rounded-full ${
-                    isSupportedNetwork
-                      ? "bg-green-500/20 text-green-400"
-                      : "bg-red-500/20 text-red-400"
-                  }`}
-                >
-                  {isSupportedNetwork
-                    ? supportedNetworks[chainId]
-                    : `Unsupported (${chainId})`}
-                </span>
+            <span className="flex items-center">
+              {account ? (
+                <>
+                  {displayAddress}
+                  {!isSupportedNetwork && (
+                    <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      Unsupported Network
+                    </span>
+                  )}
+                </>
+              ) : (
+                "Connect Wallet"
               )}
-            </>
+            </span>
           )}
-        </span>
-      </button>
+        </button>
+      ) : (
+        <button
+          onClick={() => setShowNetworkMenu(!showNetworkMenu)}
+          className={getButtonStyles()}
+        >
+          <span className="flex items-center">
+            {displayAddress}
+            {chainId && supportedNetworks[chainId] && (
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                {supportedNetworks[chainId]}
+              </span>
+            )}
+          </span>
+        </button>
+      )}
 
-      {/* Network dropdown */}
-      {account && showNetworkMenu && (
-        <div className="absolute right-0 bottom-full mb-2 w-48 sm:w-56 origin-bottom-right rounded-xl bg-gray-800 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none z-10 animate-[fadeIn_0.2s_ease-in-out]">
-          <div className="py-1">
-            <div className="px-4 py-2 text-sm text-gray-300 border-b border-gray-700">
-              Switch Network
-            </div>
+      {/* Network Selector Menu */}
+      {showNetworkMenu && (
+        <div className="absolute z-10 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5">
+          <div className="py-1" role="menu" aria-orientation="vertical">
             {Object.entries(supportedNetworks).map(([id, name]) => (
               <button
                 key={id}
-                onClick={() => switchNetwork(parseInt(id))}
-                className={`flex w-full items-center px-4 py-2 text-sm ${
-                  chainId === parseInt(id)
-                    ? "bg-indigo-600/30 text-indigo-300"
-                    : "text-gray-200 hover:bg-gray-700"
+                onClick={() => {
+                  switchNetwork(parseInt(id));
+                  setShowNetworkMenu(false);
+                }}
+                className={`block w-full text-left px-4 py-2 text-sm ${
+                  parseInt(id) === chainId
+                    ? "bg-gray-100 text-gray-900 font-medium"
+                    : "text-gray-700 hover:bg-gray-50"
                 }`}
+                role="menuitem"
               >
                 {name}
-                {chainId === parseInt(id) && (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="ml-auto h-4 w-4"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
               </button>
             ))}
-            <div className="px-4 py-2 text-xs text-gray-400 border-t border-gray-700">
-              Current: {account.slice(0, 8)}...{account.slice(-6)}
-            </div>
           </div>
         </div>
       )}
